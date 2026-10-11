@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Earth — Realistic 3D, Hand-Controlled</title>
+<meta name="description" content="A realistic 3D Earth built with Three.js. Spin and zoom it with your hands through your webcam.">
+<style>
+:root{color-scheme:dark;--pad:clamp(16px,4vw,44px)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#010208;overflow:hidden;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#fff}
+canvas#bg{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+canvas#bg:active{cursor:grabbing}
+button{font:inherit;color:inherit}
+#loader,#nogl{position:fixed;inset:0;z-index:9;display:grid;place-items:center;background:#010208;letter-spacing:.4em;font-size:12px;text-transform:uppercase;color:rgba(255,255,255,.6);text-align:center;transition:opacity .8s}
+#loader.done{opacity:0;pointer-events:none}
+#nogl{display:none;letter-spacing:.05em;text-transform:none;font-size:15px;line-height:1.6}
+.ui{position:fixed;inset:0;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;z-index:3;
+  padding:max(var(--pad),env(safe-area-inset-top)) var(--pad) max(var(--pad),env(safe-area-inset-bottom))}
+.logo{font-weight:600;letter-spacing:.32em;font-size:12px;text-transform:uppercase}
+.logo i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:10px;background:radial-gradient(circle at 35% 35%,#9be3ff,#1f6bff);box-shadow:0 0 14px #3b8cff}
+.hero{text-align:center;margin-bottom:6vh;transition:opacity .7s,transform .7s}
+body.started .hero{opacity:0;transform:translateY(12px);pointer-events:none}
+.eyebrow{font-size:12px;letter-spacing:.5em;text-transform:uppercase;color:rgba(255,255,255,.6)}
+h1{font-weight:200;font-size:clamp(44px,10vw,104px);line-height:1;letter-spacing:-.02em;margin:10px 0 14px;text-shadow:0 0 50px rgba(70,140,255,.45)}
+.sub{max-width:520px;margin:0 auto 20px;color:rgba(255,255,255,.68);font-weight:300;line-height:1.6;font-size:clamp(14px,2vw,16px);text-shadow:0 0 12px #000}
+.cta{pointer-events:auto;cursor:pointer;display:inline-block;font-size:13px;letter-spacing:.12em;text-transform:uppercase;padding:13px 28px;border-radius:99px;
+  background:linear-gradient(120deg,rgba(59,140,255,.35),rgba(76,201,255,.25));border:1px solid rgba(255,255,255,.3);backdrop-filter:blur(12px);transition:transform .3s,box-shadow .3s}
+.cta:hover{transform:translateY(-3px);box-shadow:0 0 40px rgba(76,201,255,.4)}
+.link{pointer-events:auto;cursor:pointer;background:none;border:0;margin-left:14px;color:rgba(255,255,255,.55);font-size:12px;letter-spacing:.14em;text-transform:uppercase}
+.dock{display:flex;flex-direction:column;align-items:center;gap:8px}
+.row{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;align-items:center}
+.chip,.sunbox{pointer-events:auto;cursor:pointer;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:rgba(255,255,255,.65);background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.16);border-radius:99px;padding:8px 14px;backdrop-filter:blur(10px);transition:.25s;white-space:nowrap}
+.chip:hover{color:#fff;border-color:rgba(255,255,255,.45);background:rgba(255,255,255,.1)}
+.chip.active{color:#fff;border-color:rgba(143,220,255,.7);background:linear-gradient(120deg,rgba(59,140,255,.28),rgba(76,201,255,.25))}
+.sunbox{display:inline-flex;align-items:center;gap:10px;cursor:default;padding:6px 14px}
+.sunbox input{width:110px;accent-color:#4cc9ff}
+.hint{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:rgba(255,255,255,.3);text-align:center}
+.hand-panel{position:absolute;right:var(--pad);top:calc(max(var(--pad),env(safe-area-inset-top)) + 34px);width:200px;opacity:0;visibility:hidden;transform:translateY(-8px);transition:.4s;pointer-events:none}
+body.hand-on .hand-panel{opacity:1;visibility:visible;transform:none}
+.hv{position:relative;width:200px;height:150px;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.2);background:#000}
+.hv video,.hv canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1);object-fit:cover}
+.hv video{opacity:.55}
+.hstatus{margin-top:8px;font-size:12px;color:rgba(255,255,255,.8);text-shadow:0 0 8px #000}
+.legend{margin-top:8px;font-size:11px;line-height:1.7;color:rgba(255,255,255,.55);text-shadow:0 0 8px #000}
+.legend span{color:#fff}
+@media(max-width:640px){.legend{display:none}.hand-panel{width:130px}.hv{width:130px;height:98px}.sunbox input{width:80px}}
+@media(prefers-reduced-motion:reduce){*{transition-duration:.01s!important}}
+</style>
+</head>
+<body>
+<div id="loader">Loading Earth</div>
+<div id="nogl"><p>WebGL isn't available in this browser.<br>Try a recent Chrome, Firefox, Safari or Edge.</p></div>
+<canvas id="bg"></canvas>
+
+<div class="ui">
+  <div class="logo"><i></i>Earth</div>
+
+  <div class="hand-panel">
+    <div class="hv"><video id="handVideo" playsinline muted></video><canvas id="handCanvas"></canvas></div>
+    <div class="hstatus" id="handStatus">Starting…</div>
+    <div class="legend">
+      <span>✊ Fist</span> grab to spin, push / pull to zoom<br>
+      <span>🤏 Pinch</span> drag to spin<br>
+      <span>🙌 Two open hands</span> spread to zoom
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="eyebrow">The Blue Marble</div>
+    <h1>Earth</h1>
+    <p class="sub">Oceans that glint, clouds that drift, city lights on the night side. Drag to spin, scroll to zoom — or switch on your webcam and use your hands.</p>
+    <button class="cta" id="handCta">✋ Enable hand control</button><button class="link" id="explore">Just explore</button>
+  </div>
+
+  <div class="dock">
+    <div class="row">
+      <button class="chip" id="btnHand">✋ Hand</button>
+      <button class="chip active" id="btnSpin">↻ Spin</button>
+      <button class="chip active" id="btnClouds">☁ Clouds</button>
+      <button class="chip active" id="btnLights">✦ City lights</button>
+      <label class="sunbox">☀ Sun <input type="range" id="sunAngle" min="0" max="360" value="35"></label>
+    </div>
+    <div class="hint">Drag · Scroll · H hand · Space spin · C clouds · L lights</div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+const $ = id => document.getElementById(id);
+const clamp = THREE.MathUtils.clamp;
+
+/* ---------- renderer / scene ---------- */
+const canvas = $('bg');
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' }); }
+catch (e) { $('nogl').style.display = 'grid'; throw e; }
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.05, 300);
+let dist = 4.6, distT = 4.6;
+camera.position.set(0, 0, dist);
+
+/* ---------- textures (NASA-derived, from the three.js repo via jsDelivr) ---------- */
+const TEX = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/planets/';
+const mgr = new THREE.LoadingManager(() => $('loader').classList.add('done'));
+const loader = new THREE.TextureLoader(mgr); loader.setCrossOrigin('anonymous');
+const aniso = renderer.capabilities.getMaxAnisotropy();
+const tex = (f, srgb) => { const t = loader.load(TEX + f); t.anisotropy = aniso; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
+
+const sun = new THREE.Vector3();
+const setSun = deg => { const a = deg * Math.PI / 180; sun.set(Math.cos(a) * .95, .22, Math.sin(a) * .95).normalize(); };
+setSun(35);
+
+const VERT = `varying vec2 vUv; varying vec3 vN; varying vec3 vP;
+void main(){ vUv=uv; vN=normalize(mat3(modelMatrix)*normal); vec4 w=modelMatrix*vec4(position,1.); vP=w.xyz; gl_Position=projectionMatrix*viewMatrix*w; }`;
+const OUT = `#include <tonemapping_fragment>
+#include <colorspace_fragment>`;
+
+/* ---------- Earth: day/night, normal map, ocean specular, city lights, limb haze ---------- */
+const earthMat = new THREE.ShaderMaterial({
+  uniforms: { day: { value: tex('earth_atmos_2048.jpg', true) }, night: { value: tex('earth_lights_2048.png', true) },
+    nrm: { value: tex('earth_normal_2048.jpg') }, spec: { value: tex('earth_specular_2048.jpg') },
+    sun: { value: sun }, lights: { value: 1 } },
+  vertexShader: VERT,
+  fragmentShader: `uniform sampler2D day,night,nrm,spec; uniform vec3 sun; uniform float lights;
+varying vec2 vUv; varying vec3 vN; varying vec3 vP;
+vec3 perturb(vec3 N, vec3 p, vec2 uv, vec3 m){
+  vec3 q0=dFdx(p), q1=dFdy(p); vec2 s0=dFdx(uv), s1=dFdy(uv);
+  vec3 a=cross(q1,N), b=cross(N,q0);
+  vec3 T=a*s0.x+b*s1.x, B=a*s0.y+b*s1.y;
+  float k=inversesqrt(max(max(dot(T,T),dot(B,B)),1e-8));
+  return normalize(T*(m.x*k)+B*(m.y*k)+N*m.z);
+}
+void main(){
+  vec3 Ng=normalize(vN), L=normalize(sun), V=normalize(cameraPosition-vP);
+  vec3 m=texture2D(nrm,vUv).xyz*2.-1.; m.xy*=.9;
+  vec3 N=perturb(Ng,vP,vUv,m);
+  float ndl=dot(Ng,L), lit=smoothstep(-.06,.2,ndl);
+  vec3 alb=texture2D(day,vUv).rgb; float ocean=texture2D(spec,vUv).r;
+  vec3 col=alb*(clamp(dot(N,L),0.,1.)*lit*1.9+.012);
+  vec3 H=normalize(L+V);
+  col+=vec3(1.,.92,.78)*pow(max(dot(N,H),0.),70.)*ocean*lit*1.6;
+  float fr=pow(1.-max(dot(Ng,V),0.),4.);
+  col+=vec3(.12,.28,.6)*fr*ocean*lit*.5;
+  col+=vec3(.2,.45,1.)*pow(1.-max(dot(Ng,V),0.),2.6)*.55*smoothstep(-.25,.45,ndl);
+  col+=vec3(1.,.42,.16)*exp(-pow(ndl*5.5,2.))*.07*(1.-max(dot(Ng,V),0.)*.4);
+  vec3 nl=texture2D(night,vUv).rgb;
+  col+=nl*vec3(1.,.78,.5)*(1.-smoothstep(-.14,.06,ndl))*1.7*lights;
+  gl_FragColor=vec4(col,1.);
+  ${OUT}
+}`
+});
+
+/* ---------- clouds ---------- */
+const cloudMat = new THREE.ShaderMaterial({
+  uniforms: { map: { value: tex('earth_clouds_1024.png') }, sun: { value: sun } },
+  vertexShader: VERT, transparent: true, depthWrite: false,
+  fragmentShader: `uniform sampler2D map; uniform vec3 sun; varying vec2 vUv; varying vec3 vN; varying vec3 vP;
+void main(){
+  vec4 c=texture2D(map,vUv); float a=c.a<.999?c.a:c.r;
+  float ndl=dot(normalize(vN),normalize(sun)); float l=smoothstep(-.12,.3,ndl);
+  vec3 col=vec3(1.)*(clamp(ndl,0.,1.)*1.8*l+.01)+vec3(1.,.5,.3)*exp(-pow(ndl*5.,2.))*.05;
+  gl_FragColor=vec4(col,a*.88);
+  ${OUT}
+}`
+});
+
+/* ---------- atmosphere glow ---------- */
+const atmMat = new THREE.ShaderMaterial({
+  uniforms: { sun: { value: sun } }, vertexShader: VERT, side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  fragmentShader: `uniform vec3 sun; varying vec2 vUv; varying vec3 vN; varying vec3 vP;
+void main(){
+  float d=dot(normalize(vN),normalize(cameraPosition-vP));
+  float i=pow(clamp(-d/.45,0.,1.),2.2);
+  float sl=dot(normalize(vP),normalize(sun));
+  vec3 c=mix(vec3(1.,.45,.2),vec3(.28,.55,1.),smoothstep(-.1,.5,sl));
+  gl_FragColor=vec4(c*i*smoothstep(-.35,.45,sl)*1.5,1.);
+  ${OUT}
+}`
+});
+
+/* ---------- assembly: pivot (pitch) > tilt (23.4°) > spin (yaw) ---------- */
+const pivot = new THREE.Group(), tilt = new THREE.Group(), spinG = new THREE.Group();
+tilt.rotation.z = THREE.MathUtils.degToRad(-23.4);
+scene.add(pivot); pivot.add(tilt); tilt.add(spinG);
+const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 192, 96), earthMat);
+const clouds = new THREE.Mesh(new THREE.SphereGeometry(1.012, 128, 64), cloudMat);
+spinG.add(earth, clouds);
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.09, 96, 48), atmMat));
+
+/* ---------- stars ---------- */
+{
+  const n = 5000, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), c = new THREE.Color();
+  for (let i = 0; i < n; i++) {
+    const u = Math.random() * 2 - 1, t = Math.random() * 6.2832, r = Math.sqrt(1 - u * u), R = 120;
+    pos.set([R * r * Math.cos(t), R * u, R * r * Math.sin(t)], i * 3);
+    c.setHSL(Math.random() < .3 ? .6 : .1, .5, .55 + Math.random() * .4).toArray(col, i * 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 1.5, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: .85, depthWrite: false })));
+}
+
+/* ---------- interaction state ---------- */
+let yaw = 0, pitch = .38, pendY = 0, pendP = 0, vel = 0, spin = true, dragging = false, engagedUntil = 0;
+const sens = () => clamp((dist - 1) / 3, .2, 1.3);
+const markStarted = () => document.body.classList.add('started');
+
+const ptrs = new Map();
+canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); dragging = true; markStarted(); });
+canvas.addEventListener('pointermove', e => {
+  const p = ptrs.get(e.pointerId); if (!p) return;
+  if (ptrs.size === 1) { const s = sens(); pendY += (e.clientX - p[0]) * .005 * s; pendP += (e.clientY - p[1]) * .005 * s; }
+  else if (ptrs.size === 2) {
+    const o = [...ptrs.entries()].find(([id]) => id !== e.pointerId)[1];
+    const d0 = Math.hypot(p[0] - o[0], p[1] - o[1]), d1 = Math.hypot(e.clientX - o[0], e.clientY - o[1]);
+    if (d0 > 0 && d1 > 0) distT *= d0 / d1;
+  }
+  ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+});
+const release = e => { ptrs.delete(e.pointerId); dragging = ptrs.size > 0; };
+canvas.addEventListener('pointerup', release); canvas.addEventListener('pointercancel', release);
+canvas.addEventListener('wheel', e => { e.preventDefault(); distT *= Math.exp(e.deltaY * .0012); markStarted(); }, { passive: false });
+
+/* ---------- UI buttons ---------- */
+const toggleChip = (btn, fn) => btn.addEventListener('click', () => { const on = !btn.classList.contains('active'); btn.classList.toggle('active', on); fn(on); });
+toggleChip($('btnSpin'), on => spin = on);
+toggleChip($('btnClouds'), on => clouds.visible = on);
+toggleChip($('btnLights'), on => earthMat.uniforms.lights.value = on ? 1 : 0);
+$('sunAngle').addEventListener('input', e => setSun(+e.target.value));
+$('explore').addEventListener('click', markStarted);
+addEventListener('keydown', e => {
+  if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase();
+  if (k === 'h') toggleHand(); else if (k === 'c') $('btnClouds').click(); else if (k === 'l') $('btnLights').click();
+  else if (k === ' ') { e.preventDefault(); $('btnSpin').click(); }
+  else if (k === '+' || k === '=') distT *= .85; else if (k === '-') distT /= .85;
+});
+
+/* ---------- Hand tracking (MediaPipe, runs locally in your browser) ---------- */
+const MP_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const CONNS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+const hv = $('handVideo'), hc = $('handCanvas'), hctx = hc.getContext('2d'), hStatus = $('handStatus');
+const HAND = { on: false, loading: false, landmarker: null, stream: null, lastT: -1, prev: null, prevDist: null };
+const AR = 4 / 3, setStatus = h => hStatus.innerHTML = h;
+const d2 = (a, b) => Math.hypot((a.x - b.x) * AR, a.y - b.y);
+
+function syncHandUI() {
+  const on = HAND.on || HAND.loading;
+  document.body.classList.toggle('hand-on', on); $('btnHand').classList.toggle('active', on);
+  $('handCta').textContent = HAND.on ? '✋ Hand control on' : HAND.loading ? '✋ Starting…' : '✋ Enable hand control';
+}
+async function startHand() {
+  if (HAND.on || HAND.loading) return;
+  HAND.loading = true; syncHandUI(); markStarted(); setStatus('Starting camera…');
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Camera needs HTTPS (or localhost).');
+    HAND.stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false });
+    hv.srcObject = HAND.stream; await hv.play();
+    if (!HAND.landmarker) {
+      setStatus('Loading hand model…');
+      const { FilesetResolver, HandLandmarker } = await import(`${MP_URL}/vision_bundle.mjs`);
+      const fileset = await FilesetResolver.forVisionTasks(`${MP_URL}/wasm`);
+      const opts = d => ({ baseOptions: { modelAssetPath: MP_MODEL, delegate: d }, runningMode: 'VIDEO', numHands: 2,
+        minHandDetectionConfidence: .6, minHandPresenceConfidence: .5, minTrackingConfidence: .5 });
+      try { HAND.landmarker = await HandLandmarker.createFromOptions(fileset, opts('GPU')); }
+      catch (_) { HAND.landmarker = await HandLandmarker.createFromOptions(fileset, opts('CPU')); }
+    }
+    HAND.on = true; HAND.loading = false; HAND.prev = HAND.prevDist = null; HAND.lastT = -1; setStatus('Show your hand');
+  } catch (err) {
+    console.error(err); HAND.loading = false; stopStream();
+    const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+    setStatus(denied ? 'Camera blocked — allow access and retry' : 'Could not start: ' + (err.message || 'error'));
+    document.body.classList.add('hand-on');
+    setTimeout(() => { if (!HAND.on && !HAND.loading) document.body.classList.remove('hand-on'); }, 4500);
+  }
+  syncHandUI();
+}
+function stopStream() { if (HAND.stream) HAND.stream.getTracks().forEach(t => t.stop()); HAND.stream = null; hv.srcObject = null; }
+function stopHand() { HAND.on = HAND.loading = false; HAND.prev = HAND.prevDist = null; stopStream(); hctx.clearRect(0, 0, hc.width, hc.height); syncHandUI(); }
+function toggleHand() { (HAND.on || HAND.loading) ? stopHand() : startHand(); }
+$('btnHand').addEventListener('click', toggleHand); $('handCta').addEventListener('click', toggleHand);
+document.addEventListener('visibilitychange', () => { if (document.hidden && (HAND.on || HAND.loading)) stopHand(); });
+
+function analyse(lm) {
+  const w = lm[0]; let curled = 0;
+  [[8, 6], [12, 10], [16, 14], [20, 18]].forEach(([t, p]) => { if (d2(lm[t], w) < d2(lm[p], w)) curled++; });
+  const scale = d2(lm[0], lm[9]), fist = curled >= 3, pinch = !fist && d2(lm[4], lm[8]) < scale * .32;
+  return { lm, fist, pinch, scale, cx: 1 - lm[9].x, cy: lm[9].y };
+}
+function drawHands(infos) {
+  const W = hv.videoWidth || 640, H = hv.videoHeight || 480;
+  if (hc.width !== W || hc.height !== H) { hc.width = W; hc.height = H; }
+  hctx.clearRect(0, 0, W, H);
+  infos.forEach(h => {
+    const col = h.fist ? '#ffb066' : h.pinch ? '#4cc9ff' : '#fff';
+    hctx.strokeStyle = hctx.fillStyle = col; hctx.lineWidth = 3; hctx.shadowColor = col; hctx.shadowBlur = 10;
+    CONNS.forEach(([a, b]) => { hctx.beginPath(); hctx.moveTo(h.lm[a].x * W, h.lm[a].y * H); hctx.lineTo(h.lm[b].x * W, h.lm[b].y * H); hctx.stroke(); });
+    h.lm.forEach(p => { hctx.beginPath(); hctx.arc(p.x * W, p.y * H, 4, 0, 6.283); hctx.fill(); });
+  });
+}
+function processHands(hands) {
+  const infos = hands.map(analyse); drawHands(infos);
+  if (!infos.length) { HAND.prev = HAND.prevDist = null; setStatus('Show your hand'); return; }
+  const grab = infos.filter(h => h.fist || h.pinch), fists = infos.filter(h => h.fist);
+  if (infos.length === 2 && !grab.length) {                      // two open hands: spread to zoom
+    const d = d2({ x: infos[0].cx, y: infos[0].cy }, { x: infos[1].cx, y: infos[1].cy });
+    if (HAND.prevDist) distT *= Math.pow(clamp(HAND.prevDist / d, .93, 1.07), 1.8);
+    HAND.prevDist = d; HAND.prev = null; engagedUntil = performance.now() + 1200; setStatus('<b>Two hands</b> · zoom');
+  } else if (grab.length) {                                      // fist / pinch: grab the globe
+    const h = grab[0]; HAND.prevDist = null;
+    if (HAND.prev) {
+      let dx = h.cx - HAND.prev.cx, dy = h.cy - HAND.prev.cy;
+      if (Math.abs(dx) < .0012) dx = 0; if (Math.abs(dy) < .0012) dy = 0;
+      const s = sens(); pendY += dx * 4.5 * s; pendP += dy * 3.5 * s;
+      if (fists.length) distT *= Math.pow(clamp(HAND.prev.scale / h.scale, .95, 1.05), 1.5);
+    }
+    HAND.prev = { cx: h.cx, cy: h.cy, scale: h.scale }; engagedUntil = performance.now() + 1200;
+    setStatus(h.fist ? '<b>Fist</b> · spin / zoom' : '<b>Pinch</b> · spin');
+  } else { HAND.prev = HAND.prevDist = null; setStatus('<b>Open hand</b> · make a fist to grab'); }
+}
+function handUpdate() {
+  if (!HAND.on || !HAND.landmarker || hv.readyState < 2 || hv.currentTime === HAND.lastT) return;
+  HAND.lastT = hv.currentTime;
+  let res = null; try { res = HAND.landmarker.detectForVideo(hv, performance.now()); } catch (_) { return; }
+  processHands((res && res.landmarks) || []);
+}
+syncHandUI();
+
+/* ---------- loop ---------- */
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+const clock = new THREE.Clock();
+(function tick() {
+  requestAnimationFrame(tick);
+  const dt = Math.min(clock.getDelta(), .05), now = performance.now();
+  handUpdate();
+  const cy = pendY * .25, cp = pendP * .25; pendY -= cy; pendP -= cp;
+  yaw += cy; pitch = clamp(pitch + cp, -1.25, 1.25);
+  if (Math.abs(cy) > 1e-5) vel = THREE.MathUtils.lerp(vel, cy, .2); else { yaw += vel; vel *= .95; }
+  if (spin && !dragging && now > engagedUntil) yaw += dt * .045;
+  spinG.rotation.y = yaw; pivot.rotation.x = pitch; clouds.rotation.y += dt * .006;
+  distT = clamp(distT, 1.22, 10); dist += (distT - dist) * Math.min(1, dt * 8); camera.position.z = dist;
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>
